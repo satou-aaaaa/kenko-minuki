@@ -4,6 +4,9 @@
 const CACHE = "kenko-v1";
 const SHELL = ["./", "./index.html", "./data.js", "./transfer.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
+// 保存し直すのは画面のファイルだけ（?付きの別の URL で同じものを増やさない）
+const KEEP = new Set(SHELL.map((u) => new URL(u, self.location).pathname));
+
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
@@ -11,6 +14,7 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys()
     .then((keys) => Promise.all(keys.filter((k) => k.startsWith("kenko-") && k !== CACHE).map((k) => caches.delete(k))))
+    .then(() => caches.open(CACHE)).then((c) => c.keys().then((reqs) => Promise.all(reqs.filter((r) => !KEEP.has(new URL(r.url).pathname) || new URL(r.url).search).map((r) => c.delete(r))))).catch(() => {})
     .then(() => self.clients.claim()));
 });
 
@@ -25,10 +29,12 @@ self.addEventListener("fetch", (e) => {
   // ネットの返事と保存し直しは、イベントの中で waitUntil に預ける（4秒で保存したものを返したあとに届いても、新しい版を保存できる）
   const net = fetch(req);
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  e.waitUntil(Promise.race([net.then((res) => { if (!res.ok) return; const copy = res.clone(); return Promise.race([caches.open(CACHE).then((c) => c.put(req, copy)), wait(15000)]); }, () => {}).catch(() => {}), wait(60000)])); // 保存の失敗は無視する。保存は始めてから15秒、全体は60秒で待つのをやめる（遅い通信でも保存でき、次の版の切り替えも止めない）
+  e.waitUntil(Promise.race([net.then((res) => { if (!res.ok || !KEEP.has(url.pathname)) return; const copy = res.clone(); return Promise.race([caches.open(CACHE).then((c) => c.put(url.pathname, copy)), wait(15000)]); }, () => {}).catch(() => {}), wait(60000)])); // 保存の失敗は無視する。保存は始めてから15秒、全体は60秒で待つのをやめる（遅い通信でも保存でき、次の版の切り替えも止めない）
   e.respondWith(new Promise((resolve) => {
     let sent = false; const send = (r) => { if (!sent) { sent = true; resolve(r); } };
     const slow = setTimeout(() => fromCache().then((hit) => hit && send(hit)), 4000);
+    const give = setTimeout(() => fromCache().then((hit) => send(hit || Response.error())), 20000); // 保存したものも無く、通信も返らないときは20秒で待つのをやめる
+    net.finally(() => clearTimeout(give)).catch(() => {});
     net.then((res) => {
       clearTimeout(slow);
       if (res.ok) return send(res);

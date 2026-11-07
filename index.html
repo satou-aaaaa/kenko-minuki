@@ -381,6 +381,7 @@ function randomTags(ids, n, salt, seen, prev) {
   return out;
 }
 function endlessList() { const s = rid(), seen = new Set(), out = []; let prev = null; for (const [lvs, n] of ERAMP) { const t = randomTags(idsOf(lvs), n, s + ":" + lvs.join(""), seen, prev); out.push(...t); prev = t.length ? t[t.length - 1].split("|")[0] : prev; } return out; }
+let moreHook = null; // QA で「足せる問題が無い」を試すときだけ差し替える
 function moreList(list) { const seen = new Set(list.map((t) => G.keyOf(G.make(t)))), prev = list.length ? list[list.length - 1].split("|")[0] : null; return randomTags(idsOf([0, 1, 2]), 40, rid(), seen, prev); }
 const starsOf = (m) => (m === 0 ? 3 : m === 1 ? 2 : 1); // m = まちがい＋ヒントの数
 const starStr = (s) => `<span class="stars" aria-label="星${s}つ">${"★".repeat(s)}<span class="off">${"☆".repeat(3 - s)}</span></span>`;
@@ -435,7 +436,7 @@ function tidy(s) {
   for (const b of [s.days, s.hdays, s.adays]) for (const d in b) if (!okDate(d) || !okRec(b[d])) delete b[d];
   for (const m in s.runs) {
     const r = s.runs[m]; if (r === null) continue;
-    if (typeof r !== "object" || !okDate(r.date) || !Array.isArray(r.list) || !r.list.every(okTag) || !Array.isArray(r.res) || !r.res.every((x) => x && typeof x === "object" && Number.isInteger(x.m) && x.m >= 0)) { delete s.runs[m]; continue; }
+    if (typeof r !== "object" || !["d", "h", "p", "e", "a"].includes(r.mode) || (m.startsWith("a:") ? r.mode !== "a" : r.mode !== m) || !okDate(r.date) || !Array.isArray(r.list) || !r.list.every(okTag) || !Array.isArray(r.res) || !r.res.every((x) => x && typeof x === "object" && Number.isInteger(x.m) && x.m >= 0)) { delete s.runs[m]; continue; }
     if (r.cur != null && (typeof r.cur !== "object" || !Array.isArray(r.cur.wrong))) r.cur = null; else if (r.cur) r.cur.hints = num(r.cur.hints);
   }
   return s;
@@ -546,6 +547,7 @@ function startRun(mode, opt) {
     if (mode === "e") { if (s.runs.e) return; s.runs.e = { mode, date: k, list: endlessList(), res: [], cur: null, id: rid(), a0: achGot(s) }; return; }
     if (mode !== "p" && s.runs[mode] && s.runs[mode].date === k) return; // 続きから
     if ((mode === "d" && s.days[k]) || (mode === "h" && s.hdays[k])) return; // 別のタブで今日の分を終えていたら、もう一度は始めない
+    if (doneOf(s.runs[mode])) bank(s, s.runs[mode]); // 別のタブで終えたまま記録していない回は、上書きする前に記録する
     let list;
     if (mode === "d" || mode === "h") list = listOf(mode, k);
     else if (typeof opt === "string") list = randomTags([opt], 5, rid(), new Set(), null);
@@ -567,7 +569,7 @@ const MCLS = { "チラシ": "m0", "SNSの投稿": "m1", "ネットの記事広�
 function play() {
   const s = load(), run = s.runs[MODE];
   if (!run) return home();
-  if (run.mode === "e" && run.res.length >= run.list.length - 5) { save((s2) => { const r = s2.runs.e; if (r && r.id === run.id) r.list.push(...moreList(r.list)); }); return play(); }
+  if (run.mode === "e" && run.res.length >= run.list.length - 5) { let added = 0; save((s2) => { const r = s2.runs.e; if (r && r.id === run.id) { const more = (moreHook || moreList)(r.list); added = more.length; r.list.push(...more); } }); if (added) return play(); if (run.res.length >= run.list.length) return endFinish(run); } // 足せる問題が無ければ、残りを出して終える（くり返し呼ばない）
   const i = run.res.length;
   if (i >= run.list.length) return finish();
   if (run.mode === "a" && s.days[run.date]) { save((s2) => { s2.runs[MODE] = null; }); toast("この日は別の画面で遊び終えています"); return home(); }
@@ -586,7 +588,7 @@ function play() {
       <div class="bar"><span>${isAd ? "📰" : "💬"} ${esc(P.media)}</span><span>${isAd ? "架空の商品" : "考えてみよう"}</span></div>
       ${isAd ? `<p class="name">${esc(P.prod)}<small>${esc(P.media)}より（商品・会社・投稿はすべて架空です）</small></p>` : `<p class="sit" data-a11y-say>${esc(P.q)}</p>`}
       ${isAd ? `<p class="q" data-a11y-say>${esc(P.q)}</p>` : ""}
-      <div class="choices" id="choices" role="group" aria-label="${isAd ? "広告の行" : "すること"}">${P.opts.map((t, j) => `<button class="ch" data-j="${j}">${esc(t)}</button>`).join("")}</div>
+      <div class="choices" id="choices" role="group" aria-label="${isAd ? "広告の行" : "すること"}">${P.opts.map((t, j) => `<button class="ch" data-j="${j}" data-a11y-say>${esc(t)}</button>`).join("")}</div>
     </div>
     <p class="msg" id="msg" role="status" aria-live="polite"></p>
     <div id="hintbox"></div>
@@ -622,8 +624,9 @@ function choose(j) {
   }
   // 正解
   cur.done = true; buzz([10, 40, 10]);
-  const m = missOf(), st = starsOf(m), P = cur.P;
-  const s = save((s) => { const r = s.runs[MODE]; if (!same(r)) return; r.res.push({ m }); r.cur = null; s.dex[P.kind] = (s.dex[P.kind] || 0) + 1; });
+  const P = cur.P;
+  const s = save((s) => { const r = s.runs[MODE]; if (!same(r)) return; const was = r.cur && r.cur.i === cur.i && r.cur.tag === cur.tag ? r.cur : null; if (was) { cur.hints = Math.max(cur.hints, was.hints || 0); for (const w of was.wrong || []) if (!cur.wrong.includes(w)) cur.wrong.push(w); } r.res.push({ m: missOf() }); r.cur = null; s.dex[P.kind] = (s.dex[P.kind] || 0) + 1; }); // 別のタブで使ったヒント・まちがいも合わせてから数える
+  const m = missOf(), st = starsOf(m);
   const r = s.runs[MODE], fin = r && r.mode !== "e" && r.res.length >= r.list.length;
   document.querySelectorAll(".ch").forEach((b) => { b.disabled = true; if (P.opts[+b.dataset.j] === P.ans) { b.classList.remove("ng"); b.classList.add("ok"); b.setAttribute("aria-label", P.ans + (P.type === "ad" ? "（根拠なし）" : "（正解）")); } });
   if ($("hint")) $("hint").disabled = true;
@@ -781,7 +784,7 @@ function about() {
   $("back").onclick = home; bindFooter(); toTop();
 }
 
-window.__km = { randomTags, idsOf, mode: () => MODE, load, save, todayKey, dayNo, lateDays, ACH, achGot, nextAch, tally, shareText, streak, endlessList, moreList, ERAMP, TIPS, cur: () => cur, play: (m) => { if (m) MODE = m; play(); }, home, cal, book, about, EPOCH, KEY, G };
+window.__km = { randomTags, idsOf, mode: () => MODE, load, save, todayKey, dayNo, lateDays, ACH, achGot, nextAch, tally, shareText, streak, endlessList, moreList, ERAMP, TIPS, cur: () => cur, play: (m) => { if (m) MODE = m; play(); }, home, cal, book, about, EPOCH, KEY, G, start: startRun, setMore: (f) => { const o = moreHook; moreHook = f; return o; } };
 home();
 if ("serviceWorker" in navigator && location.protocol === "https:" && /github\.io$/.test(location.hostname)) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
