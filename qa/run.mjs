@@ -212,7 +212,7 @@ try {
   await p.click("#hint"); await p.click("#hint");
   await p.evaluate(() => { const c = __km.cur(); [...document.querySelectorAll(".ch:not(.ng)")].find((b) => c.P.opts[+b.dataset.j] !== c.P.ans).click(); });
   await p.waitForTimeout(50);
-  check("ヒント2のあとに残ったまちがいを選ぶと、正解だけが残る（消した選び肢が戻らない。saibanin-shikumi #1）", await p.locator(".ch.ng").count() === 3 && await p.locator(".ch:not(.ng)").count() === 1);
+  check("ヒント2のあとに残ったまちがいを選ぶと、正解だけが残る（消した選び肢が戻らない。saibanin-shikumi #1）", await p.locator(".ch.ng").count() === 3 && await p.locator(".ch:not(.ng)").count() === 1 && await p.evaluate(() => { const c = __km.cur(); const b = document.querySelector(".ch:not(.ng)"); return !!b && !b.disabled && c.P.opts[+b.dataset.j] === c.P.ans; }));
   await p.reload(); await p.waitForTimeout(200);
   check("とことんは閉じても続きから", (await p.textContent("#go-e")).includes("続きから"));
   await p.click("#go-e"); await p.click("#quit"); await p.waitForTimeout(150);
