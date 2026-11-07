@@ -172,6 +172,7 @@ try {
   await solve(p);
   check("ヒント2回は★1", (await p.getAttribute(".verdict .stars", "aria-label")) === "星1つ");
   await p.click("#next");
+  check("次の問題へ進むと、フォーカスが問題（#card）に移る", await p.evaluate(() => document.activeElement && document.activeElement.id) === "card");
   for (let i = 2; i < 5; i++) { await solve(p); await p.click("#next"); }
   await p.waitForTimeout(150);
   const s1 = await mem(p);
@@ -208,6 +209,10 @@ try {
   await solve(p, { wrong: 3 }); await p.click("#next");
   await p.click("#hint"); await p.click("#hint"); await solve(p); await p.click("#next");
   check("とことんはまちがい3回・ヒント2回でも終わらない", await p.locator(".ch").count() === 4 && await p.evaluate(() => __km.load().runs.e.res.length) === 4);
+  await p.click("#hint"); await p.click("#hint");
+  await p.evaluate(() => { const c = __km.cur(); [...document.querySelectorAll(".ch:not(.ng)")].find((b) => c.P.opts[+b.dataset.j] !== c.P.ans).click(); });
+  await p.waitForTimeout(50);
+  check("ヒント2のあとに残ったまちがいを選ぶと、正解だけが残る（消した選び肢が戻らない。saibanin-shikumi #1）", await p.locator(".ch.ng").count() === 3 && await p.locator(".ch:not(.ng)").count() === 1);
   await p.reload(); await p.waitForTimeout(200);
   check("とことんは閉じても続きから", (await p.textContent("#go-e")).includes("続きから"));
   await p.click("#go-e"); await p.click("#quit"); await p.waitForTimeout(150);
