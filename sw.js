@@ -1,11 +1,25 @@
-// 健康情報みぬきを端末に保存して、電波が無くても遊べるようにする（PWA）。
+// ゲームを端末に保存して、電波が無くても遊べるようにする（PWA）。
 // 画面は先にネットを見て、つながらないときだけ保存したものを使う（直した版がすぐ届く）。
 // 記録（localStorage）には触らない。外へ何も送らない（よそのサイト＝文字の取り寄せは扱わない）。
-const CACHE = "kenko-v3";
+// ひな形: satou-aaaaa/shared-workflows の template/sw.js。ゲームで直すのは game:begin〜game:end の間だけ。
+//   ほかを直すときはひな形を直し、node scripts/sync-template.mjs <ゲームのフォルダ> で写す（間は残る）。
+// ひな形の版: 1（上げたら写しの版も上げる。scripts/drift-check.mjs が古い写し・ひな形とちがう写しを週次まとめに出す）
+//   1: 28本が写し合いで28通りになっていたのを1つにした（2026-11-07 shared-workflows #219）。本文の止まりを進み具合で見る・
+//      控えも通信も止まったら60秒でタイマーから直接 Response.error() を返す・? 付きの URL を同じ1つに保存する・
+//      保存したものは自分の版（cacheName）からだけ探す・入れるときは HTTP の保存を通さない（cache: "reload"）
+// game:begin
+const CACHE = "kenko-v4";
 const SHELL = ["./", "./index.html", "./data.js", "./transfer.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
+// game:end
 
-// 保存し直すのは画面のファイルだけ（?付きの別の URL で同じものを増やさない）
-const KEEP = new Set(SHELL.map((u) => new URL(u, self.location).pathname));
+// 同じゲームの古い版（<名前>-v<数字>）だけを消す。同じサイトのほかのゲーム（kotowaza- と kotowaza-bamen- など）の保存には触らない
+const PREFIX = CACHE.replace(/v\d+$/, "");
+const base = self.location.href || self.location.origin + "/";
+const KEEP = new Set(SHELL.map((u) => new URL(u, base).pathname)); // 保存し直すのは画面のファイルだけ
+const INDEX = new URL("./index.html", base).pathname;
+const IDLE = 4000; // 本文がこれだけ止まったら保存したものに切り替える（少しずつでも届いていれば待つ）
+const LIMIT = 60000; // 保存したものも無く、これだけ何も届かなければ Response.error() を返す（少しずつでも届いていれば待つ）
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
@@ -13,33 +27,64 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k.startsWith("kenko-") && k !== CACHE).map((k) => caches.delete(k))))
-    .then(() => caches.open(CACHE)).then((c) => c.keys().then((reqs) => Promise.all(reqs.filter((r) => !KEEP.has(new URL(r.url).pathname) || new URL(r.url).search).map((r) => c.delete(r))))).catch(() => {})
+    .then((keys) => Promise.all(keys.filter((k) => k.startsWith(PREFIX) && /^v\d+$/.test(k.slice(PREFIX.length)) && k !== CACHE).map((k) => caches.delete(k))))
+    .then(() => caches.open(CACHE)).then((c) => c.keys().then((reqs) => Promise.all(reqs.filter((r) => { const u = new URL(r.url); return !KEEP.has(u.pathname) || u.search; }).map((r) => c.delete(r)))))
+    .catch(() => {})
     .then(() => self.clients.claim()));
 });
+
+// 本文を読み切る。かたまりが届くたびに止まりの時計を戻す（合計の時間では見ない）。止まったら idle()、届くたびに moved() を呼ぶ
+function readAll(res, idle, moved) {
+  if (!res.body || !res.body.getReader) return res.arrayBuffer();
+  const reader = res.body.getReader();
+  const parts = [];
+  let timer = setTimeout(idle, IDLE);
+  const pump = () => reader.read().then(({ done, value }) => {
+    clearTimeout(timer);
+    if (done) {
+      const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+      let at = 0; for (const p of parts) { out.set(p, at); at += p.length; }
+      return out.buffer;
+    }
+    parts.push(value); moved(); timer = setTimeout(idle, IDLE);
+    return pump();
+  }, (err) => { clearTimeout(timer); throw err; });
+  return pump();
+}
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  const fromCache = () => caches.match(req, { ignoreSearch: true })
-    .then((hit) => hit || (req.mode === "navigate" ? caches.match("./index.html") : undefined))
-    .catch(() => undefined); // 保存したものを読めなくても、必ず返事を返す（ネットの返事か Response.error()）
-  // ネットの返事と保存し直しは、イベントの中で waitUntil に預ける（4秒で保存したものを返したあとに届いても、新しい版を保存できる）
-  const net = fetch(req);
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  e.waitUntil(Promise.race([net.then((res) => { if (!res.ok || !KEEP.has(url.pathname)) return; const copy = res.clone(); return Promise.race([caches.open(CACHE).then((c) => c.put(url.pathname, copy)), wait(15000)]); }, () => {}).catch(() => {}), wait(60000)])); // 保存の失敗は無視する。保存は始めてから15秒、全体は60秒で待つのをやめる（遅い通信でも保存でき、次の版の切り替えも止めない）
+  // 自分の版の保存からだけ探す（消す前の古い版の画面を返さない）。読めなくても必ず返事を返す
+  const fromCache = () => caches.open(CACHE)
+    .then((c) => c.match(url.pathname).then((hit) => hit || (req.mode === "navigate" ? c.match(INDEX) : undefined)))
+    .catch(() => undefined);
+  let saved = () => {};
+  e.waitUntil(Promise.race([new Promise((r) => { saved = r; }), wait(LIMIT)])); // 保存し直しが終わるまで（60秒まで）待つ
   e.respondWith(new Promise((resolve) => {
-    let sent = false; const send = (r) => { if (!sent) { sent = true; resolve(r); } };
-    const slow = setTimeout(() => fromCache().then((hit) => hit && send(hit)), 4000);
-    const give = setTimeout(() => fromCache().then((hit) => send(hit || Response.error())), 20000); // 保存したものも無く、通信も返らないときは20秒で待つのをやめる
-    net.finally(() => clearTimeout(give)).catch(() => {});
-    net.then((res) => {
-      clearTimeout(slow);
-      if (res.ok) return send(res);
-      if (res.status >= 500) return fromCache().then((hit) => send(hit || res));
-      send(res);
-    }, () => { clearTimeout(slow); fromCache().then((hit) => send(hit || Response.error())); });
+    let sent = false;
+    let cap = 0;
+    const send = (r) => { if (sent) return; sent = true; clearTimeout(cap); clearTimeout(first); resolve(r); };
+    // 最後の返事。控えの検索も待たない（どちらも止まっても返す）。何か届くたびに時計を戻す（大きなファイルの受信を打ち切らない。#252 の CodeRabbit）
+    const arm = () => { clearTimeout(cap); cap = setTimeout(() => send(Response.error()), LIMIT); };
+    const fallback = () => fromCache().then((hit) => hit && send(hit)); // 保存したものがあれば切り替える（無ければネットを待ち続ける）
+    const first = setTimeout(fallback, IDLE); // 見出しが4秒届かないとき
+    arm();
+    fetch(req).then((res) => {
+      clearTimeout(first); arm();
+      return readAll(res, fallback, arm).then((buf) => {
+        const make = () => new Response(buf, { status: res.status, statusText: res.statusText, headers: res.headers });
+        if (res.ok) {
+          send(make());
+          if (!KEEP.has(url.pathname)) return saved();
+          return caches.open(CACHE).then((c) => c.put(url.pathname, make())).catch(() => {}).then(saved);
+        }
+        saved();
+        if (res.status >= 500) return fromCache().then((hit) => send(hit || make()));
+        send(make());
+      });
+    }).catch(() => { saved(); return fromCache().then((hit) => send(hit || Response.error())); });
   }));
 });
