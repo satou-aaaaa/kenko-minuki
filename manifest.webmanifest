@@ -1,0 +1,15 @@
+{
+  "name": "健康情報みぬき",
+  "short_name": "健康みぬき",
+  "description": "健康食品の広告や投稿から、根拠のない言い回しを見抜く1日5問",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3efe4",
+  "theme_color": "#f3efe4",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
