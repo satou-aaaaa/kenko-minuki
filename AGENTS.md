@@ -24,13 +24,14 @@ node qa/run.mjs   # 問題（17種類×3000問：答えは1つ・ふつうの行
 - ★はまちがい＋ヒントの数（0で★3・1で★2・2以上で★1）。ヒントは1回目が「見るところ」（答えは言わない）、2回目が選び肢を2つにしぼる。上級はヒントなし。正解したら必ず「なぜ」と出典を出す。時間制限なし。
 - 今日の5問・上級は1日1回で、途中で閉じても続きから。途中経過はモードごと（`runs.d`・`runs.h`・`runs.p`・`runs.e`・`runs["a:日付"]`）。答える前に保存した進み具合が画面と同じ問題か確かめる（`same`）。途中の保存（`keep`）は別のタブで使ったヒント・まちがいを減らさない。`load` は合わせる前に両方を `fresh()` で補う（shared-workflows `incidents/2026-11-04-daily-game-save-gaps.md`）。
 - 好きなだけ遊べる：チケット・ライフ・回数制限・🔒で開くモードを入れない（shared-workflows `routines/game-dev.md` F1〜F7。QA が見る）。とことん（`runs.e`）はまちがえてもヒントを使っても続き、「ここで降りる」で終わる。並び（`endlessList`：やさしい6→ふつう14→ふつう・むずかしい40）は1回の中で同じ問題（`keyOf`）と同じ種類の連続を出さず、残り5問で `moreList` が40問足す。自己ベスト `ebest` は一度で見抜いた数。今日の記録・連続・Ko-fi・シェアには数えない（見抜き帳には載る）。
+- 1問を深くする（shared-workflows `routines/game-dev.md`「1問を深くする」、2026-11-11）：`depth.js` と `qa/depth-check.mjs` は shared-workflows `template/` の写しで、ここでは直さない。答える前に「🎯 自信あり？」を押せる（失うものは無い。この回の数は `runs.*.ds`）。広告の問題（`ad`）は、見抜いたら2段目「なぜあやしい？」を `data.js` の `GROUPS` の3つ（病気・薬の話／根拠が弱い／思いこみ）から選ぶ。種類と分け方の対応は `GRP`（広告の種類を足したら `GRP` にも足す。QA が見る）。途中は `cur.step`・`cur.w2`・`cur.h2`。2段目のまちがい・ヒントも★に数え、2段目のヒントはちがう分け方を1つ消す。まちがい・ヒントがあった問題は `Depth.mark` で復習へ入り、1→3→7日後にホームの「復習」（`runs.r`）に戻る。復習は今日の記録・連続・Ko-fi・シェアに数えない。起動時に `Depth.setValid` で作り直せない鍵を数えない。
 - 実績（`ACH` 13個）は記録から毎回数え、新しく残すのは知らせ終えた印 `ach` だけ。続けるは合わせた日数。連続の日は1以上のときだけ出す。取りこぼした日（きのう〜7日前、`EPOCH` より後）はカレンダーからあとから遊べる（記録は `adays`。連続・今日の記録・Ko-fi・シェアには数えない）。
 - 共有は遊ぶ人が押したときに開くリンク（X・LINE・Web Share・コピー）だけ。シェアの文に問題・答え・商品名を出さない。
 - 感想は「感想を送る」から GitHub の Issue フォーム（`.github/ISSUE_TEMPLATE/feedback.yml`、name は「感想フォーム」）を開くだけ。名前・メールは聞かない。
 - 応援は Ko-fi（https://ko-fi.com/satouaaaaa）へのただのリンクだけ。今日の5問・上級を初めて全部まちがいなしで終えたときだけ、結果の画面の下に1行。遊ぶのは無料のまま、有料版は置かない。
 - 外へ通信しない。外から読むのは Google Fonts の文字だけ（CSP の `connect-src 'self'` を広げない）。出典は押したときに開くただのリンク。記録は遊ぶ人のブラウザ（localStorage）だけ。
 - 見やすさ：`</head>` の前の見やすさの設定（`<!-- a11y:begin -->`〜`end`）は shared-workflows `template/a11y/a11y.html` の写し、`qa/a11y.mjs` は `template/qa/a11y.mjs` の写しで、ここでは直さない。色だけで分けない（根拠なしの行は「根拠なし」の判、場面の正解は「✓ 正解」、まちがいは「✕ ちがう」と破線、取れなかった星は ☆）。文字の大きさは3段（`kenko-fs`）。
-- 引き継ぎ：`transfer.js` と `qa/transfer-check.mjs` は shared-workflows `template/` の写しで、ここでは直さない。`data-keys` は `kenko-v1,kenko-fs`。記録の形を変えたら QA の `sample` も合わせる。
+- 引き継ぎ：`transfer.js` と `qa/transfer-check.mjs` は shared-workflows `template/` の写しで、ここでは直さない。`data-keys` は `kenko-v1,kenko-fs,kenko-depth`。記録の形を変えたら QA の `sample` も合わせる。
 - 少し遅れて動く処理（setTimeout）は、画面が替わっていたら何もしない。一行の式の途中にコメント `//` を足さない。
 - 機能を足す・直すたびに `qa/run.mjs` に検査を足す。乱数で組む部分は何百〜何千回も作って確かめる（shared-workflows `incidents/2026-10-31-roppo-empty-village.md`）。
 - PWA（`manifest.webmanifest`・`sw.js`・`icon-*.png`）：画面のファイルを足したら `sw.js` の `SHELL` にも足し、中身を大きく変えたら `CACHE` の版を上げる。アイコンは `node tools/make-icons.cjs`、SNS 用の絵 `og.png` は `node tools/make-og.cjs`（今日の問題を入れない）。

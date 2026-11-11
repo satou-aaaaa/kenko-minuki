@@ -153,6 +153,14 @@
         [() => "あきらめて、そのまま払い続ける", () => "SNSで同じ人を探して、待つ", () => "届いた商品を、だまって捨てる", () => "広告にあった別の商品を買う"]) },
   ];
   const BY = Object.fromEntries(KINDS.map((k) => [k.id, k]));
+  // 2段目「なぜあやしい？」の3つの分け方（広告の問題だけ）。中身は各種類の why と同じ資料による（2026-11-11 game-dev.md「1問を深くする」）
+  // 種類を足したら GRP にも足す（QA が広告の種類全部にあるかを見る）。KINDS の並び・中身は変えないので、過去の日の問題は変わらない
+  const GROUPS = {
+    ill: { name: "病気・薬の話", sub: "食品なのに、治す・防ぐ・薬の代わりと言う" },
+    proof: { name: "根拠が弱い", sub: "その証拠では、人に効くとは言えない" },
+    myth: { name: "思いこみ", sub: "安全・量・値段・国の関わりを取りちがえる" },
+  };
+  const GRP = { cure: "ill", quit: "ill", tokuho: "ill", taiken: "proof", mouse: "proof", kuchikomi: "proof", gakkai: "proof", natural: "myth", more: "myth", price: "myth", kaso: "myth", kuni: "myth" };
   const kindsOf = (lv) => KINDS.filter((k) => k.lv === lv).map((k) => k.id);
 
   function seedOf(str) { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
@@ -163,7 +171,7 @@
     const [kind] = String(tag).split("|"), k = BY[kind];
     if (!k) return null;
     const p = k.make(rng(seedOf(tag)));
-    return { tag, kind, lv: k.lv, name: k.name, look: k.look, why: k.why, src: k.src.map((s) => SRC[s]), ...p };
+    return { tag, kind, lv: k.lv, name: k.name, look: k.look, why: k.why, src: k.src.map((s) => SRC[s]), grp: GRP[kind] || null, ...p };
   }
   // 同じ問題かを見分ける鍵（種類・商品・言い回し・選び肢の組）
   const keyOf = (P) => `${P.kind}:${P.v}:${P.opts.slice().sort().join("/")}`;
@@ -179,6 +187,6 @@
     return h.map((id, i) => `${id}|${date}:h${i}`);
   }
 
-  const KENKO = { KINDS, BY, LV, SRC, PRODS, MEDIA, NEUTRAL, kindsOf, seedOf, rng, make, keyOf, dailyTags, hardTags, pickN };
+  const KENKO = { KINDS, BY, GROUPS, GRP, LV, SRC, PRODS, MEDIA, NEUTRAL, kindsOf, seedOf, rng, make, keyOf, dailyTags, hardTags, pickN };
   if (typeof module !== "undefined" && module.exports) module.exports = KENKO; else root.KENKO = KENKO;
 })(typeof self !== "undefined" ? self : this);
