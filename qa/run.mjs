@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { checkTransfer } from "./transfer-check.mjs";
 import { checkSwStall } from "./sw-check.mjs";
+import { checkDepth } from "./depth-check.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const results = [];
@@ -81,7 +82,7 @@ check("一行の式の途中にコメント // を足さない（行の残りが
 check("言い方：ゲームの言葉で病気に効く・治る・予防できるとすすめない（問題の中のあやしい行は除く）", !/効果があります|予防できます|改善します|おすすめのサプリ|飲むとよい/.test(html + readme));
 check("言い方：「このゲームについて」に、医療の助言ではないこと・架空であること・相談先がある", /医療の助言ではありません/.test(html) && /架空/.test(html) && /医師・薬剤師に相談/.test(html) && /188/.test(html));
 check("画面にお笑いの言葉を入れない（本物っぽく）", !/お笑い|ギャグ|ツッコミ|なんでやねん|（うそ）/.test(html + gen));
-check("引き継ぎ：transfer.js をゲームの script より前に、このゲームの記録のキーだけで読む", /<script src="transfer\.js" data-game="kenko-minuki" data-keys="kenko-v1,kenko-fs"><\/script>\s*<\/head>/.test(html) && html.indexOf('src="transfer.js"') < html.indexOf('src="data.js"') && /data-hk/.test(html) && existsSync(path.join(root, "transfer.js")));
+check("引き継ぎ：transfer.js をゲームの script より前に、このゲームの記録のキー（記録・文字・復習）だけで読む・depth.js も前に読む", /<script src="transfer\.js" data-game="kenko-minuki" data-keys="kenko-v1,kenko-fs,kenko-depth"><\/script>\s*<script src="depth\.js" data-game="kenko-minuki" data-key="kenko-depth"><\/script>\s*<\/head>/.test(html) && html.indexOf('src="transfer.js"') < html.indexOf('src="data.js"') && /data-hk/.test(html) && existsSync(path.join(root, "transfer.js")));
 check("好きなだけ遊べる：チケット・回数の上限・🔒で開くモードを入れない（game-dev.md F1・F2）", !/🎫|チケット|すると開く|🔒/.test(html) && !/\blife\b|ELIFE/.test(html));
 { const og = (k) => (html.match(new RegExp(`<meta (?:property|name)="${k}" content="([^"]+)"`)) || [])[1] || "";
   const png = readFileSync(path.join(root, "og.png"));
@@ -92,7 +93,7 @@ check("好きなだけ遊べる：チケット・回数の上限・🔒で開く
 check("README の URL のすぐ後ろに全角の字を続けない（Link check が URL の一部と読む）", !/https?:\/\/[\x21-\x7e]*[^\x00-\x7f]/.test(readme.replace(/\]\(https?:\/\/[^)\s]+\)/g, "").replace(/<https?:\/\/[^>\s]+>/g, "")));
 { const sw = readFileSync(path.join(root, "sw.js"), "utf8"), mf = JSON.parse(readFileSync(path.join(root, "manifest.webmanifest"), "utf8"));
   const shell = JSON.parse(sw.match(/SHELL = (\[[^\]]+\])/)[1]);
-  check("PWA：sw.js は画面のファイルを全部保存し（引き継ぎの transfer.js も）、取り直して保存し、外へ何も送らない", ["./index.html", "./data.js", "./transfer.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"].every((f) => shell.includes(f)) && /cache: "reload"/.test(sw) && !/https?:\/\//.test(sw.replace(/^\/\/.*$/gm, "")));
+  check("PWA：sw.js は画面のファイルを全部保存し（引き継ぎの transfer.js・深さの depth.js も）、取り直して保存し、外へ何も送らない", ["./index.html", "./data.js", "./transfer.js", "./depth.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"].every((f) => shell.includes(f)) && /cache: "reload"/.test(sw) && !/https?:\/\//.test(sw.replace(/^\/\/.*$/gm, "")));
   { const st = await checkSwStall(sw); check("PWA：通信が止まっても4秒ほどで保存した画面に切り替わり、少しずつ届く受信は待ち、何も無ければ60秒で返す（shared-workflows template/qa/sw-check.mjs）", st.ok, JSON.stringify(st)); }
   check("PWA：manifest にアイコン2つと名前がある", mf.name === "健康情報みぬき" && mf.icons.length >= 2 && mf.start_url === "./"); }
 
@@ -122,9 +123,12 @@ const closeHow = async (p) => { if (await p.locator("#howto[open]").count()) awa
 const ansIdx = (p) => p.evaluate(() => { const c = __km.cur(); return c.P.opts.indexOf(c.P.ans); });
 const wrongIdx = (p) => p.evaluate(() => { const c = __km.cur(); return c.P.opts.findIndex((o) => o !== c.P.ans && !c.wrong.includes(o)); });
 const mem = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("kenko-v1") || "{}"));
+// 2段目「なぜあやしい？」が出たら、正しい分け方を押す（場面の問題には出ない）
+const why = async (p) => { await p.waitForSelector(".verdict, .why button"); if (await p.locator(".verdict").count()) return; await p.click(`.why button[data-g="${await p.evaluate(() => __km.cur().P.grp)}"]`); };
 async function solve(p, { wrong = 0 } = {}) {
   for (let i = 0; i < wrong; i++) await p.click(`.ch[data-j="${await wrongIdx(p)}"]`);
   await p.click(`.ch[data-j="${await ansIdx(p)}"]`);
+  await why(p);
   await p.waitForSelector(".verdict");
 }
 
@@ -311,11 +315,63 @@ try {
     await b.click("#hint");
     check("別のタブで使ったヒントの数を減らさない", (await mem(a)).runs.d.cur.hints === 2);
     // 正解した時も、別のタブで使ったヒントを合わせて★を数える（2026-11-07 CodeRabbit）
-    await b.click(`.ch[data-j="${await ansIdx(b)}"]`); await b.waitForTimeout(150);
+    await b.click(`.ch[data-j="${await ansIdx(b)}"]`); await why(b); await b.waitForTimeout(150);
     check("正解の時も別のタブのヒントを合わせて数える（★1）", (await mem(b)).runs.d.res[1].m === 2);
     await ctx.close();
   }
 
+  // 1問を深くする（shared-workflows routines/game-dev.md「1問を深くする」）：自信をかける・2段目「なぜあやしい？」・復習
+  {
+    const q = await newPage(); await closeHow(q);
+    await q.evaluate((tags) => __km.save((s) => { s.runs.p = { mode: "p", date: __km.todayKey(), list: tags, res: [], cur: null, id: "dp" }; }), ["cure|dp1", "mouse|dp2", "med|dp3"]);
+    await q.evaluate(() => { Depth.runStart(); __km.play("p"); });
+    const sb = await q.$eval("#dp-sure", (b) => [b.getBoundingClientRect().height, b.getAttribute("aria-pressed"), b.textContent]);
+    check("自信のボタン：高さ44px以上・はじめは押していない", sb[0] >= 44 && sb[1] === "false", sb.join(","));
+    await q.click("#dp-sure");
+    check("自信のボタンを押すと ✓ が出る（色だけで分けない）", (await q.getAttribute("#dp-sure", "aria-pressed")) === "true" && (await q.textContent("#dp-sure")).includes("✓"));
+    await q.click(`.ch[data-j="${await wrongIdx(q)}"]`);
+    check("自信ありでまちがえると、知らせに「思いこみ」と出て、自信は変えられない", (await q.textContent("#msg")).includes("思いこみ") && await q.locator("#dp-sure:disabled").count() === 1);
+    await q.click(`.ch[data-j="${await ansIdx(q)}"]`);
+    check("広告の行を見抜くと、2段目「なぜあやしい？」が3つ出る（押せる所は44px以上）", await q.locator(".why button").count() === 3 && await q.locator(".verdict").count() === 0 && (await q.$$eval(".why button", (b) => b.every((x) => x.getBoundingClientRect().height >= 44))));
+    check("2段目の間は、広告の行は押せない", await q.evaluate(() => [...document.querySelectorAll(".ch")].every((b) => b.disabled)));
+    await q.reload(); await q.waitForTimeout(150); await q.evaluate(() => __km.play("p"));
+    check("2段目の途中で閉じても、2段目から続く", await q.locator(".why button").count() === 3);
+    const wg = await q.evaluate(() => Object.keys(__km.G.GROUPS).find((x) => x !== __km.cur().P.grp));
+    await q.click(`.why button[data-g="${wg}"]`);
+    check("2段目でまちがえると ✕ ちがう（破線）・もう一度選べる", await q.locator(".why button.ng").count() === 1 && (await q.textContent("#msg")).includes("✕"));
+    await q.click("#hint");
+    const ng1 = await q.locator(".why button:disabled").count();
+    await q.reload(); await q.waitForTimeout(150); await q.evaluate(() => __km.play("p"));
+    check("2段目のヒントで消した分け方は、閉じて開き直しても消えたまま（ヒントも押せないまま）", await q.locator(".why button:disabled").count() === ng1 && ng1 >= 1 && await q.locator("#hint:disabled").count() === 1 && (await q.textContent("#hintbox")).includes("消しました"));
+    await why(q); await q.waitForSelector(".verdict");
+    const m0 = await q.evaluate(() => __km.load().runs.p.res[0].m);
+    check("★は1段目と2段目のまちがい・ヒントを合わせて数える（1＋1＋1＝3）", m0 === 3, m0);
+    check("見抜いた画面に、分け方と、自信ありでまちがえたことが出る", (await q.textContent(".verdict")).includes("病気・薬の話") && (await q.textContent(".verdict")).includes("自信ありでまちがえた"));
+    await q.click("#next");
+    await q.click(`.ch[data-j="${await ansIdx(q)}"]`); await why(q); await q.click("#next");
+    await q.click(`.ch[data-j="${await ansIdx(q)}"]`); await q.waitForSelector(".verdict");
+    check("「こんなとき」の問題は2段目を出さずに終わる", await q.locator(".why button").count() === 0);
+    await q.click("#next"); await q.waitForTimeout(150);
+    check("終えた直後の結果に「自信ありの当たり」が出る", (await q.textContent("#surestat")).includes("0/1"));
+    const dp = await q.evaluate(() => JSON.parse(localStorage.getItem("kenko-depth") || "{}"));
+    check("まちがえた・ヒントを使った問題だけ復習に入る", Object.keys(dp.rv || {}).join() === "cure|dp1", Object.keys(dp.rv || {}).join(","));
+    await q.evaluate(() => { const d = JSON.parse(localStorage.getItem("kenko-depth")); for (const k in d.rv) d.rv[k].due = "2026-01-01"; localStorage.setItem("kenko-depth", JSON.stringify(d)); });
+    await q.goto(url); await q.waitForTimeout(150);
+    check("日の来た復習があると、ホームに「復習 1問」", (await q.textContent("#go-r")).includes("復習 1問"));
+    const before = await mem(q);
+    await q.click("#go-r");
+    check("復習の画面は「復習」と出る・同じ問題", (await q.textContent("header")).includes("復習") && await q.evaluate(() => __km.cur().tag) === "cure|dp1");
+    await solve(q); await q.click("#next"); await q.waitForTimeout(150);
+    const after = await mem(q), dp2 = await q.evaluate(() => JSON.parse(localStorage.getItem("kenko-depth")));
+    check("復習を終えると結果は「復習」・今日の記録は増えない・シェアは出ない", (await q.textContent("h1")).includes("復習") && JSON.stringify(after.days) === JSON.stringify(before.days) && await q.locator("#share").count() === 0);
+    check("復習で一度で正解すると、次は3日後へ進む", Object.values(dp2.rv).every((x) => x.s === 1 && x.due > TODAY));
+    await q.goto(url); await q.waitForTimeout(150);
+    check("復習を終えたら、ホームの「復習」は消える", await q.locator("#go-r").count() === 0);
+    await q.evaluate(() => { const d = JSON.parse(localStorage.getItem("kenko-depth")); d.rv["nai|1"] = { s: 0, due: "2026-01-01", t: 1 }; d.rv["constructor|x"] = { s: 0, due: "2026-01-01", t: 2 }; localStorage.setItem("kenko-depth", JSON.stringify(d)); });
+    await q.goto(url); await q.waitForTimeout(150);
+    check("作り直せない鍵（無い種類・constructor）は復習に数えず、ホームも出る", await q.locator("#go-d").count() === 1 && await q.locator("#go-r").count() === 0);
+    await q.context().close();
+  }
   // スマホ幅・とても大きい文字でもはみ出さない・押す所は44px以上
   {
     const bad = [], small = [];
@@ -351,11 +407,17 @@ try {
     await q.focus("#go-d"); await q.keyboard.press("Enter"); await q.waitForTimeout(100);
     const j = await ansIdx(q);
     await q.focus(`.ch[data-j="${j}"]`); await q.keyboard.press("Enter"); await q.waitForTimeout(100);
-    check("キーボードだけで選んで答えられる", await q.locator(".verdict").count() === 1);
+    if (await q.locator(".why button").count()) { await q.focus(`.why button[data-g="${await q.evaluate(() => __km.cur().P.grp)}"]`); await q.keyboard.press("Enter"); await q.waitForTimeout(100); }
+    check("キーボードだけで選んで答えられる（2段目もキーボードで）", await q.locator(".verdict").count() === 1);
     await q.context().close();
   }
 } catch (e) { check("ブラウザでの検査が最後まで動く", false, e.stack.split("\n").slice(0, 3).join(" ")); }
 
+// 深さの部品（shared-workflows template/qa/depth-check.mjs）
+{ const e = await checkDepth(readFileSync(path.join(root, "depth.js"), "utf8")); check("depth.js（自信をかける・復習）の動き", e.length === 0, e.join(" / ")); }
+// 2段目の分け方：広告の種類には全部あり（3つのどれか）、場面の種類には無い
+{ const bad = G.KINDS.filter((k) => { const P = G.make(`${k.id}|grp`); return P.type === "ad" ? !G.GROUPS[P.grp] : P.grp != null; }).map((k) => k.id);
+  check("2段目「なぜあやしい？」の分け方：広告の種類は全部3つのどれか・場面の種類には無い", bad.length === 0 && Object.keys(G.GROUPS).length === 3 && Object.keys(G.GROUPS).every((g) => Object.values(G.GRP).includes(g)), bad.join(",")); }
 // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
 try {
   const sample = { "kenko-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { m: [0, 1, 0, 0, 2], k: ["taiken", "cure", "more", "med", "kuni"] } }, hdays: {}, adays: {}, dex: { taiken: 1, cure: 1, more: 1, med: 1, kuni: 1 }, runs: {}, kofi: {}, ach: {}, ebest: 7, t: 1 }), "kenko-fs": "3" };
