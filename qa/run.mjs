@@ -221,6 +221,12 @@ try {
   check("とことんは閉じても続きから", (await p.textContent("#go-e")).includes("続きから"));
   await p.click("#go-e"); await p.click("#quit"); await p.waitForTimeout(150);
   check("「ここで降りる」で終わり、一度で見抜いた数（2問）が自己ベストに残る", (await mem(p)).ebest === 2 && (await p.textContent("#eres")).includes("4問") && !("e" in (await mem(p)).runs && (await mem(p)).runs.e));
+  { const q = await newPage(); await closeHow(q); await q.click("#go-e"); await solve(q); await q.click("#quit"); await q.waitForTimeout(150);
+    check("とことんで正解した直後（次へを押す前）でも「ここで降りる」で終わり、その1問が数に入る", await q.locator("#eres").count() === 1 && (await q.textContent("#eres")).includes("1問") && (await mem(q)).ebest === 1 && !(await mem(q)).runs.e); await q.context().close(); }
+  { const c = await browser.newContext({ viewport: { width: 390, height: 800 } }); await c.addInitScript(() => { window.__origSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error("full"); }; }); const q = await newPage(390, c); await closeHow(q); await q.click("#go-e"); await solve(q); await q.waitForTimeout(2000);
+    const warn = await q.locator("#savewarn").count(), txt = warn ? await q.textContent("#savewarn") : "";
+    await q.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; }); for (let i = 0; i < 2; i++) { await q.click("#next"); await solve(q); } await q.waitForTimeout(100);
+    check("保存できないと帯 #savewarn がちょうど1つ出て2秒たっても残り、保存できるようになって次の問題を解くと消える（復習の控え depth.js も書けてから）", warn === 1 && txt.includes("保存できませんでした") && await q.locator("#savewarn").count() === 0, `帯 ${warn}`); await c.close(); }
   {
     // とことんの並びを何百回作って、1回の中で同じ問題が無い・続けて同じ種類が無い・足しても重ならない
     const r = await p.evaluate(() => { const K = __km.G, bad = []; for (let n = 0; n < 300; n++) { const l = __km.endlessList(), more = l.concat(__km.moreList(l)); const ks = more.map((t) => K.keyOf(K.make(t))); if (new Set(ks).size !== ks.length) bad.push("重なり"); if (more.some((t, i) => i && t.split("|")[0] === more[i - 1].split("|")[0])) bad.push("同じ種類が続く"); if (l.length !== 60 || more.length !== 100) bad.push("数" + l.length + "/" + more.length); } return bad; });
@@ -445,6 +451,10 @@ try {
   const sample = { "kenko-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { m: [0, 1, 0, 0, 2], k: ["taiken", "cure", "more", "med", "kuni"] } }, hdays: {}, adays: {}, dex: { taiken: 1, cure: 1, more: 1, med: 1, kuni: 1 }, runs: {}, kofi: {}, ach: {}, ebest: 7, t: 1 }), "kenko-fs": "3" };
   await checkTransfer({ browser, url, game: "kenko-minuki", sample, check, open: async (pg) => { if (await pg.locator("#howto[open]").count()) await pg.click("#howto-ok"); } });
 } catch (e) { check("引き継ぎの検査が最後まで動く", false, e.message.split("\n")[0]); }
+{ // 知らせ（.toast）は下のボタンを塞がない（shared-workflows incidents/2026-11-17-known-game-bugs-spread.md）
+  const pt = await browser.newPage(); await pt.goto(url);
+  check("知らせ（.toast）が出ていても、その下のボタンを押せる（pointer-events:none）", await pt.evaluate(() => { const d = document.createElement("div"); d.className = "toast"; document.body.appendChild(d); const v = getComputedStyle(d).pointerEvents; d.remove(); return v === "none"; }));
+  await pt.close(); }
 await browser.close();
 server.close();
 check("画面のエラーが無い", errors.length === 0, errors.slice(0, 3).join(" | "));
