@@ -47,7 +47,9 @@
     { t: (p) => `内容量：${p.f === "粒" ? "60粒" : p.f === "粉" ? "30包" : p.f === "お茶" ? "30袋" : "30本"}` },
   ];
 
+  // part:ri:begin（shared-workflows の template/parts/data/ri.js の写し。ここでは直さない。node scripts/sync-template.mjs で写す）
   const ri = (R, a, b) => a + Math.floor(R() * (b - a + 1));
+  // part:ri:end
   const pick = (R, arr) => arr[Math.floor(R() * arr.length)];
   const pickN = (R, arr, n) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a.slice(0, n); };
   const shuffle = (R, arr) => pickN(R, arr, arr.length);
@@ -163,8 +165,12 @@
   const GRP = { cure: "ill", quit: "ill", tokuho: "ill", taiken: "proof", mouse: "proof", kuchikomi: "proof", gakkai: "proof", natural: "myth", more: "myth", price: "myth", kaso: "myth", kuni: "myth" };
   const kindsOf = (lv) => KINDS.filter((k) => k.lv === lv).map((k) => k.id);
 
+  // part:seedOf:begin（shared-workflows の template/parts/data/seedOf.js の写し。ここでは直さない。node scripts/sync-template.mjs で写す）
   function seedOf(str) { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+  // part:seedOf:end
+  // part:rng:begin（shared-workflows の template/parts/data/rng.js の写し。ここでは直さない。node scripts/sync-template.mjs で写す）
   function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  // part:rng:end
 
   // 1問を作る。tag は「種類|種」（例 "cure|2026-11-07:d0"）。同じ tag ならいつも同じ問題
   function make(tag) {
